@@ -1,0 +1,28 @@
+package com.maintenance.supervisor.domain.repository
+
+import com.maintenance.supervisor.domain.model.DailyMaintenance
+import com.maintenance.supervisor.domain.model.Factory
+import com.maintenance.supervisor.domain.model.MaintenanceAnswer
+import com.maintenance.supervisor.domain.model.MaintenanceReport
+import com.maintenance.supervisor.domain.model.User
+import kotlinx.coroutines.flow.Flow
+
+sealed interface AppResult<out T> {
+    data class Success<T>(val value: T) : AppResult<T>
+    data class Error(val message: String, val cause: Throwable? = null) : AppResult<Nothing>
+}
+data class HomeSnapshot(val user: User?, val factory: Factory?, val daily: DailyMaintenance?, val lastSync: String?)
+
+interface AuthRepository {
+    suspend fun hasSession(): Boolean
+    suspend fun login(phone: String, password: String): AppResult<Unit>
+    suspend fun logout()
+}
+interface MaintenanceRepository {
+    fun observeHome(): Flow<HomeSnapshot>
+    suspend fun bootstrap(): AppResult<Unit>
+    suspend fun startOrLoadToday(): AppResult<MaintenanceReport>
+    suspend fun saveAnswer(reportId: String, answer: MaintenanceAnswer)
+    suspend fun completeReport(reportId: String): AppResult<Unit>
+    suspend fun sync(): AppResult<Unit>
+}
