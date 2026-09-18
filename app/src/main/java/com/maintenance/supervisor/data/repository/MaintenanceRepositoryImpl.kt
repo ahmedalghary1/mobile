@@ -132,23 +132,36 @@ class MaintenanceRepositoryImpl @Inject constructor(
     override suspend fun sync(): AppResult<Unit> = try {
         val pending = dao.pendingReports()
         if (pending.isNotEmpty()) {
-            pending.forEach { dao.setReportStatus(it.report.clientReportId, SyncStatus.SYNCING.name) }
-            val response = api.syncReports(BatchSyncRequest(pending.map { it.toInput() }))
-            val byId = response.reports.associateBy { it.clientReportId }
             pending.forEach { local ->
-                val result = byId[local.report.clientReportId]
-                when {
-                    result == null -> dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = "لم يؤكد الخادم استلام التقرير")
-                    result.status.lowercase() in setOf("accepted", "created", "updated", "synced", "success", "already_synced", "rejected", "conflict") -> {
-                        dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNCED.name, result.id); dao.dequeue(local.report.clientReportId)
+                dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNCING.name)
+                try {
+                    val response = api.syncReports(BatchSyncRequest(listOf(local.toInput())))
+                    val result = response.reports.firstOrNull { it.clientReportId == local.report.clientReportId }
+                    when {
+                        result == null -> dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = "لم يؤكد الخادم استلام التقرير")
+                        result.status.lowercase() in setOf("accepted", "created", "updated", "synced", "success", "already_synced", "rejected", "conflict") -> {
+                            dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNCED.name, result.id)
+                            dao.dequeue(local.report.clientReportId)
+                        }
+                        else -> dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = result.detail ?: result.status)
                     }
-                    else -> dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = result.detail ?: result.status)
+                } catch (t: retrofit2.HttpException) {
+                    if (t.code() == 400 || t.code() == 409) {
+                        dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNCED.name, null)
+                        dao.dequeue(local.report.clientReportId)
+                    } else {
+                        dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = t.javaClass.simpleName)
+                    }
+                } catch (t: kotlinx.serialization.SerializationException) {
+                    dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNCED.name, null)
+                    dao.dequeue(local.report.clientReportId)
+                } catch (t: Throwable) {
+                    dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = t.javaClass.simpleName)
                 }
             }
         }
         when (val pulled = bootstrap()) { is AppResult.Error -> pulled; is AppResult.Success -> AppResult.Success(Unit) }
     } catch (t: Throwable) {
-        dao.pendingReports().forEach { dao.setReportStatus(it.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = t.javaClass.simpleName) }
         AppResult.Error("تعذر الإرسال الآن، وسيتم المحاولة تلقائيًا.", t)
     }
 
