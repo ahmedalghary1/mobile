@@ -15,7 +15,7 @@ set "BUILD_TOOLS=%ANDROID_HOME%\build-tools\35.0.0"
 set "ZIPALIGN=%BUILD_TOOLS%\zipalign.exe"
 set "APKSIGNER=%BUILD_TOOLS%\apksigner.bat"
 set "KEYSTORE=%~dp0.signing\maintenance-release.jks"
-set "UNSIGNED_APK=%~dp0app\build\outputs\apk\release\app-release-unsigned.apk"
+set "UNSIGNED_APK=%~dp0app\build\outputs\apk\release\app-release.apk"
 set "TEMP_DIR=%~dp0.build-temp"
 set "ALIGNED_APK=%~dp0.build-temp\maintenance-release-aligned.apk"
 set "SIGNED_TEMP=%~dp0.build-temp\maintenance-supervisor-release.apk"
@@ -41,7 +41,7 @@ if not exist "%KEYSTORE%" (
     echo Keep its password and this file safe for future updates:
     echo %KEYSTORE%
     echo.
-    "%KEYTOOL%" -genkeypair -v -keystore "%KEYSTORE%" -alias maintenance -keyalg RSA -keysize 4096 -validity 10000
+    "%KEYTOOL%" -genkeypair -v -keystore "%KEYSTORE%" -alias maintenance -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=Maintenance, O=Elwsam, C=EG" -storepass elwsam123 -keypass elwsam123
     if errorlevel 1 goto failed
 )
 
@@ -64,7 +64,7 @@ if errorlevel 1 goto failed
 echo.
 echo [4/4] Signing and verifying APK...
 echo Enter the release-key password when requested.
-call "%APKSIGNER%" sign --ks "%KEYSTORE%" --ks-key-alias maintenance --out "%SIGNED_TEMP%" "%ALIGNED_APK%"
+call "%APKSIGNER%" sign --ks "%KEYSTORE%" --ks-pass pass:elwsam123 --ks-key-alias maintenance --out "%SIGNED_TEMP%" "%ALIGNED_APK%"
 if errorlevel 1 goto failed
 call "%APKSIGNER%" verify --verbose --print-certs "%SIGNED_TEMP%"
 if errorlevel 1 goto failed
@@ -79,7 +79,6 @@ echo Final signed APK:
 echo %FINAL_APK%
 echo ============================================================
 echo.
-pause
 exit /b 0
 
 :missing_java
@@ -111,6 +110,5 @@ echo.
 echo BUILD FAILED. Review the error shown above.
 echo No APK was installed or executed on this PC.
 echo.
-pause
 exit /b 1
 

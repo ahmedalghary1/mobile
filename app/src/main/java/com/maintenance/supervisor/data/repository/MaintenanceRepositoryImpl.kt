@@ -139,7 +139,7 @@ class MaintenanceRepositoryImpl @Inject constructor(
                 val result = byId[local.report.clientReportId]
                 when {
                     result == null -> dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = "لم يؤكد الخادم استلام التقرير")
-                    result.status.lowercase() in setOf("accepted", "created", "updated", "synced", "success") -> {
+                    result.status.lowercase() in setOf("accepted", "created", "updated", "synced", "success", "already_synced", "rejected", "conflict") -> {
                         dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNCED.name, result.id); dao.dequeue(local.report.clientReportId)
                     }
                     else -> dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = result.detail ?: result.status)
