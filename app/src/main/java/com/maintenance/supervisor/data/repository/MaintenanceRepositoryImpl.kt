@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.Clock
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -25,6 +27,7 @@ class MaintenanceRepositoryImpl @Inject constructor(
 ) : MaintenanceRepository {
     private val dao = db.maintenanceDao()
     private val cairo = ZoneId.of("Africa/Cairo")
+    private val reportWriteMutex = Mutex()
 
     override fun observeHome(): Flow<HomeSnapshot> = combine(
         dao.observeUser(), dao.observeFactory(), dao.observeAssets(), dao.observeCurrent(), dao.observeReports(), dao.observeMetadata("last_sync")
@@ -37,16 +40,15 @@ class MaintenanceRepositoryImpl @Inject constructor(
         val lastSync = values[5] as String?
         val today = LocalDate.now(clock.withZone(cairo))
 
-        // Find an open draft or today's completed report
-        val open = reports.firstOrNull { it.report.completedAtDevice == null }
-        val todayCompleted = reports.firstOrNull { relation -> relation.report.completedAtDevice?.let {
-            OffsetDateTime.parse(it).atZoneSameInstant(cairo).toLocalDate() == today
-        } == true }
-        // Also find a synced report for today (downloaded from server)
-        val todaySynced = reports.firstOrNull { relation ->
-            LocalDate.parse(relation.report.reportDate) == today && relation.report.syncStatus == SyncStatus.SYNCED.name
-        }
-        val chosenReport = open ?: todayCompleted ?: todaySynced
+        // An upload error must still reopen the same local report. The old
+        // status filter caused a second, blank report to be created.
+        val todayReport = reports
+            .filter { LocalDate.parse(it.report.reportDate) == today }
+            .maxByOrNull { it.report.lastModifiedAtDevice }
+        val open = reports
+            .filter { it.report.completedAtDevice == null }
+            .maxByOrNull { it.report.lastModifiedAtDevice }
+        val chosenReport = todayReport ?: open
 
         val baseIndex = assets.indexOfFirst { it.id == current?.assetId }
         val advances = reports.count { it.report.completedAtDevice != null && LocalDate.parse(it.report.reportDate) < today && current != null && !LocalDate.parse(it.report.reportDate).isBefore(LocalDate.parse(current.reportDate)) }
@@ -57,10 +59,16 @@ class MaintenanceRepositoryImpl @Inject constructor(
                 ChecklistSection(relation.section.id, relation.section.title, relation.section.sequence,
                     relation.items.sortedBy { item -> item.sequence }.map { item -> ChecklistItem(item.id, item.sectionId, item.text, item.sequence) })
             }
+            val report = chosenReport?.toDomain()?.let { saved ->
+                val savedAnswers = saved.answers.associateBy { answer -> answer.checklistItemId }
+                saved.copy(answers = sections.flatMap { section -> section.items }.map { item ->
+                    savedAnswers[item.id] ?: MaintenanceAnswer(item.id, false, "")
+                })
+            }
             val total = current?.total?.takeIf { count -> count > 0 } ?: assets.size
             val position = current?.position?.let { start -> if (total > 0) ((start - 1 + advances).mod(total)) + 1 else start } ?: (assets.indexOf(it) + 1)
             DailyMaintenance(it.toDomain(), chosenReport?.report?.reportDate?.let(LocalDate::parse) ?: today,
-                position, total, sections, chosenReport?.toDomain())
+                position, total, sections, report)
         }
         HomeSnapshot(user?.let { u -> factory?.let { u.toDomain(it) } }, factory?.toDomain(), daily, lastSync)
     }
@@ -90,7 +98,11 @@ class MaintenanceRepositoryImpl @Inject constructor(
                 return templateCodes[code]
             }
 
-            dao.upsertAssets(value.assets.map { AssetEntity(it.id, it.code, it.name, it.typeName, it.sequence, getTemplateId(it.assetType), it.isActive) })
+            // The server list is already in canonical cycle order. Its
+            // sequence_order repeats for each asset type, so use list order.
+            dao.upsertAssets(value.assets.mapIndexed { index, it ->
+                AssetEntity(it.id, it.code, it.name, it.typeName, index + 1, it.checklistTemplateId ?: getTemplateId(it.assetType), it.isActive)
+            })
 
             // Extract current asset info from the bootstrap response
             val currentAssetId = value.asset?.id
@@ -105,9 +117,6 @@ class MaintenanceRepositoryImpl @Inject constructor(
                 val today = LocalDate.now(clock.withZone(cairo))
                 val reportDate = LocalDate.parse(serverReport.reportDate)
                 val isLocked = serverReport.isLocked || reportDate < today
-
-                // Clean up old synced reports to avoid duplicates
-                dao.clearSyncedReports()
 
                 dao.upsertReport(MaintenanceReportEntity(
                     clientReportId = serverReport.clientReportId,
@@ -165,28 +174,33 @@ class MaintenanceRepositoryImpl @Inject constructor(
     }
 
     override suspend fun saveAnswer(reportId: String, answer: MaintenanceAnswer) {
-        db.withTransaction {
+        reportWriteMutex.withLock { db.withTransaction {
             val existing = dao.report(reportId)?.report ?: return@withTransaction
             // Don't allow saving if report is locked
             if (existing.isLocked) return@withTransaction
             dao.upsertAnswers(listOf(MaintenanceAnswerEntity(reportId, answer.checklistItemId, answer.checked, answer.note)))
-            dao.upsertReport(existing.copy(lastModifiedAtDevice = OffsetDateTime.now(clock).toString(), syncStatus = SyncStatus.LOCAL_DRAFT.name))
-        }
+            dao.updateReport(existing.copy(lastModifiedAtDevice = OffsetDateTime.now(clock).toString(), syncStatus = SyncStatus.LOCAL_DRAFT.name, lastError = null))
+        } }
     }
 
-    override suspend fun completeReport(reportId: String): AppResult<Unit> = try {
-        db.withTransaction {
+    override suspend fun completeReport(reportId: String, answers: List<MaintenanceAnswer>): AppResult<Unit> = try {
+        reportWriteMutex.withLock { db.withTransaction {
             val report = dao.report(reportId)?.report ?: error("missing report")
             // Don't allow completing a locked report
             if (report.isLocked) error("التقرير مقفل ولا يمكن تعديله.")
             val now = OffsetDateTime.now(clock).toString()
-            dao.upsertReport(report.copy(completedAtDevice = now, lastModifiedAtDevice = now, syncStatus = SyncStatus.PENDING_SYNC.name))
+            dao.updateReport(report.copy(completedAtDevice = now, lastModifiedAtDevice = now, syncStatus = SyncStatus.PENDING_SYNC.name, lastError = null))
+            // Flush the latest in-memory form snapshot atomically before sync.
+            dao.upsertAnswers(answers.map {
+                MaintenanceAnswerEntity(reportId, it.checklistItemId, it.checked, it.note)
+            })
             dao.enqueue(SyncQueueEntity(clientReportId = reportId, enqueuedAt = now))
-        }
+        } }
         AppResult.Success(Unit)
     } catch (t: Throwable) { AppResult.Error("تعذر حفظ التقرير على الهاتف.", t) }
 
     override suspend fun sync(): AppResult<Unit> = try {
+        var retryableFailure: Throwable? = null
         val pending = dao.pendingReports()
         if (pending.isNotEmpty()) {
             pending.forEach { local ->
@@ -195,14 +209,19 @@ class MaintenanceRepositoryImpl @Inject constructor(
                     val response = api.syncReports(BatchSyncRequest(listOf(local.toInput())))
                     val result = response.reports.firstOrNull { it.clientReportId == local.report.clientReportId }
                     when {
-                        result == null -> dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = "لم يؤكد الخادم استلام التقرير")
-                        result.status.lowercase() in setOf("synced", "already_synced", "success") -> {
+                        result == null -> {
+                            val error = IllegalStateException("لم يؤكد الخادم استلام التقرير")
+                            retryableFailure = error
+                            dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = error.message)
+                        }
+                        result.status.lowercase() in setOf("accepted", "created", "updated", "synced", "already_synced", "success") -> {
                             dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNCED.name, result.id)
                             dao.dequeue(local.report.clientReportId)
                         }
                         result.status.lowercase() in setOf("conflict") -> {
-                            // Conflict means server has different data — mark synced to avoid retry loop
-                            dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNCED.name, result.id)
+                            // A conflict is not a successful upload. Preserve the
+                            // local answers and show the server explanation.
+                            dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, result.id, result.detail ?: "تعارض التقرير مع بيانات الخادم")
                             dao.dequeue(local.report.clientReportId)
                         }
                         result.status.lowercase() == "rejected" -> {
@@ -214,23 +233,31 @@ class MaintenanceRepositoryImpl @Inject constructor(
                     }
                 } catch (t: retrofit2.HttpException) {
                     if (t.code() == 409) {
-                        dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNCED.name, null)
+                        dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = "تعارض التقرير مع بيانات الخادم")
                         dao.dequeue(local.report.clientReportId)
                     } else if (t.code() == 400) {
                         val errorBody = t.response()?.errorBody()?.string() ?: "بيانات غير صالحة"
                         dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = "خطأ في البيانات: $errorBody")
                         dao.dequeue(local.report.clientReportId)
                     } else {
-                        dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = t.javaClass.simpleName)
+                        retryableFailure = t
+                        dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = "تعذر الاتصال بالخادم (HTTP ${t.code()})")
                     }
                 } catch (t: kotlinx.serialization.SerializationException) {
+                    retryableFailure = t
                     dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = "خطأ في تحليل الاستجابة")
                 } catch (t: Throwable) {
-                    dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = t.javaClass.simpleName)
+                    retryableFailure = t
+                    dao.setReportStatus(local.report.clientReportId, SyncStatus.SYNC_ERROR.name, error = "تعذر الاتصال بالخادم. سيُعاد الإرسال تلقائيًا.")
                 }
             }
         }
-        when (val pulled = bootstrap()) { is AppResult.Error -> pulled; is AppResult.Success -> AppResult.Success(Unit) }
+        when (val pulled = bootstrap()) {
+            is AppResult.Error -> pulled
+            is AppResult.Success -> retryableFailure?.let {
+                AppResult.Error("تعذر إرسال التقرير الآن، وسيتم تكرار المحاولة تلقائيًا.", it)
+            } ?: AppResult.Success(Unit)
+        }
     } catch (t: Throwable) {
         AppResult.Error("تعذر الإرسال الآن، وسيتم المحاولة تلقائيًا.", t)
     }
@@ -254,7 +281,8 @@ private fun ReportWithAnswers.toDomain(): MaintenanceReport {
         OffsetDateTime.parse(report.lastModifiedAtDevice),
         SyncStatus.valueOf(report.syncStatus),
         answers.map { MaintenanceAnswer(it.checklistItemId, it.checked, it.note) },
-        locked
+        locked,
+        report.lastError
     )
 }
 private fun ReportWithAnswers.toInput() = ReportInput(report.clientReportId, report.assetId, report.reportDate, report.startedAtDevice, requireNotNull(report.completedAtDevice), report.lastModifiedAtDevice, answers.map { AnswerInput(it.checklistItemId, it.checked, it.note) })

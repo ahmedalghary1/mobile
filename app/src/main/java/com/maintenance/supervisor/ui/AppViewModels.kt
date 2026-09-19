@@ -48,13 +48,15 @@ data class InspectionUiState(val home: HomeSnapshot? = null, val saving: Boolean
      * hasn't completed yet.
      */
     private val _answerOverrides = MutableStateFlow<Map<Int, MaintenanceAnswer>>(emptyMap())
+    private val _completion = MutableStateFlow(Pair(false, null as String?))
 
     val state: StateFlow<InspectionUiState> = combine(
         repository.observeHome(),
-        _answerOverrides
-    ) { home, overrides ->
+        _answerOverrides,
+        _completion
+    ) { home, overrides, completion ->
         if (home.daily?.report == null) {
-            return@combine InspectionUiState(home)
+            return@combine InspectionUiState(home, completion.first, completion.second)
         }
         // Merge local overrides into the report answers from DB, keeping latest
         val report = home.daily.report
@@ -65,7 +67,7 @@ data class InspectionUiState(val home: HomeSnapshot? = null, val saving: Boolean
         val mergedReport = report.copy(answers = mergedAnswers)
         val mergedDaily = home.daily.copy(report = mergedReport)
         val mergedHome = home.copy(daily = mergedDaily)
-        InspectionUiState(mergedHome)
+        InspectionUiState(mergedHome, completion.first, completion.second)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InspectionUiState())
 
     fun update(itemId: Int, checked: Boolean, note: String) {
@@ -81,11 +83,18 @@ data class InspectionUiState(val home: HomeSnapshot? = null, val saving: Boolean
     }
 
     fun complete(onDone: () -> Unit) {
-        val id = state.value.home?.daily?.report?.clientReportId ?: return
+        if (_completion.value.first) return
+        val report = state.value.home?.daily?.report ?: return
         viewModelScope.launch {
-            if (repository.completeReport(id) is AppResult.Success) {
-                _answerOverrides.value = emptyMap() // clear overrides after successful save
-                scheduler.enqueue(); onDone()
+            _completion.value = true to null
+            when (val result = repository.completeReport(report.clientReportId, report.answers)) {
+                is AppResult.Success -> {
+                    _answerOverrides.value = emptyMap()
+                    _completion.value = false to null
+                    scheduler.enqueue()
+                    onDone()
+                }
+                is AppResult.Error -> _completion.value = false to result.message
             }
         }
     }

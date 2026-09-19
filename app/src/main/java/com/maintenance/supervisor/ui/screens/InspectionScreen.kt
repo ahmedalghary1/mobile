@@ -35,8 +35,12 @@ import com.maintenance.supervisor.ui.InspectionViewModel
             navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "رجوع") } })
     }, bottomBar = {
         if (!isLocked) {
-            Surface(shadowElevation = 8.dp) { Button(onClick = { vm.complete(onSaved) }, enabled = report != null,
-                modifier = Modifier.fillMaxWidth().padding(16.dp).height(62.dp)) { Icon(Icons.Outlined.CheckCircle, null); Spacer(Modifier.width(8.dp)); Text("حفظ وإنهاء الفحص", fontSize = 20.sp) } }
+            Surface(shadowElevation = 8.dp) { Button(onClick = { vm.complete(onSaved) }, enabled = report != null && !state.saving,
+                modifier = Modifier.fillMaxWidth().padding(16.dp).height(62.dp)) {
+                if (state.saving) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                else Icon(Icons.Outlined.CheckCircle, null)
+                Spacer(Modifier.width(8.dp)); Text(if (state.saving) "جاري الحفظ" else "حفظ وإنهاء الفحص", fontSize = 20.sp)
+            } }
         } else {
             Surface(shadowElevation = 8.dp, color = MaterialTheme.colorScheme.surfaceVariant) {
                 Row(Modifier.fillMaxWidth().padding(16.dp).height(62.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
@@ -49,6 +53,9 @@ import com.maintenance.supervisor.ui.InspectionViewModel
     }) { padding ->
         if (daily == null || report == null) Box(Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         else LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            state.error?.let { message ->
+                item(key = "save-error") { Text(message, color = MaterialTheme.colorScheme.error) }
+            }
             daily.sections.forEach { section ->
                 item(key = "s${section.id}") { Text(section.title, color = MaterialTheme.colorScheme.primary, fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)) }
                 val uiItems = section.items.map { it to answerMap[it.id] }

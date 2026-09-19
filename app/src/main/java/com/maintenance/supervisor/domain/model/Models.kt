@@ -29,5 +29,6 @@ data class MaintenanceReport(
     val lastModifiedAt: OffsetDateTime,
     val status: SyncStatus,
     val answers: List<MaintenanceAnswer>,
-    val isLocked: Boolean = false
+    val isLocked: Boolean = false,
+    val lastError: String? = null
 )

@@ -83,6 +83,7 @@ dependencies {
     androidTestImplementation("androidx.test:core-ktx:1.7.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.room:room-testing:2.8.5")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     androidTestImplementation("com.google.dagger:hilt-android-testing:2.57.2")
     kspAndroidTest("com.google.dagger:hilt-compiler:2.57.2")
     debugImplementation("androidx.compose.ui:ui-tooling")

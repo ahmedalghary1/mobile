@@ -23,6 +23,6 @@ interface MaintenanceRepository {
     suspend fun bootstrap(): AppResult<Unit>
     suspend fun startOrLoadToday(): AppResult<MaintenanceReport>
     suspend fun saveAnswer(reportId: String, answer: MaintenanceAnswer)
-    suspend fun completeReport(reportId: String): AppResult<Unit>
+    suspend fun completeReport(reportId: String, answers: List<MaintenanceAnswer>): AppResult<Unit>
     suspend fun sync(): AppResult<Unit>
 }

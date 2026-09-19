@@ -5,6 +5,8 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -16,7 +18,9 @@ interface MaintenanceDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertSections(values: List<ChecklistSectionEntity>)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertItems(values: List<ChecklistItemEntity>)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertCurrent(value: CurrentMaintenanceEntity)
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertReport(value: MaintenanceReportEntity)
+    // REPLACE deletes the parent row first and cascades deletion to its answers.
+    @Upsert suspend fun upsertReport(value: MaintenanceReportEntity)
+    @Update suspend fun updateReport(value: MaintenanceReportEntity)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertAnswers(values: List<MaintenanceAnswerEntity>)
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun enqueue(value: SyncQueueEntity)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putMetadata(value: MetadataEntity)
@@ -28,7 +32,7 @@ interface MaintenanceDao {
     @Transaction @Query("SELECT * FROM reports WHERE ownerUserId = (SELECT id FROM users LIMIT 1) ORDER BY reportDate") fun observeReports(): Flow<List<ReportWithAnswers>>
     @Transaction @Query("SELECT * FROM reports WHERE clientReportId = :id") suspend fun report(id: String): ReportWithAnswers?
     @Transaction @Query("SELECT * FROM reports WHERE reportDate = :date AND ownerUserId = (SELECT id FROM users LIMIT 1) LIMIT 1") suspend fun reportForDate(date: String): ReportWithAnswers?
-    @Transaction @Query("SELECT * FROM reports WHERE reportDate = :date AND ownerUserId = (SELECT id FROM users LIMIT 1) AND (completedAtDevice IS NULL OR syncStatus IN ('SYNCED','PENDING_SYNC','LOCAL_DRAFT')) LIMIT 1") suspend fun todayReport(date: String): ReportWithAnswers?
+    @Transaction @Query("SELECT * FROM reports WHERE reportDate = :date AND ownerUserId = (SELECT id FROM users LIMIT 1) ORDER BY lastModifiedAtDevice DESC LIMIT 1") suspend fun todayReport(date: String): ReportWithAnswers?
     @Query("SELECT * FROM reports WHERE syncStatus = 'LOCAL_DRAFT' AND ownerUserId = (SELECT id FROM users LIMIT 1) LIMIT 1") suspend fun openReport(): MaintenanceReportEntity?
     @Transaction @Query("SELECT * FROM checklist_sections WHERE templateId = :templateId ORDER BY sequence") suspend fun checklist(templateId: Int): List<SectionWithItems>
     @Transaction @Query("SELECT * FROM reports WHERE ownerUserId = (SELECT id FROM users LIMIT 1) AND syncStatus IN ('PENDING_SYNC','SYNCING','SYNC_ERROR') AND completedAtDevice IS NOT NULL ORDER BY reportDate ASC, completedAtDevice ASC") suspend fun pendingReports(): List<ReportWithAnswers>
@@ -41,5 +45,4 @@ interface MaintenanceDao {
     @Query("DELETE FROM checklist_templates") suspend fun clearTemplates()
     @Query("DELETE FROM checklist_sections") suspend fun clearSections()
     @Query("DELETE FROM checklist_items") suspend fun clearItems()
-    @Query("DELETE FROM reports WHERE syncStatus = 'SYNCED'") suspend fun clearSyncedReports()
 }

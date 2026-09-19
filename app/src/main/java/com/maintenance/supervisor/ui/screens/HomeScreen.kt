@@ -33,7 +33,12 @@ import java.util.Locale
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(if (state.refreshing) Icons.Outlined.Sync else if (state.connected) Icons.Outlined.CloudDone else Icons.Outlined.CloudOff, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.secondary)
-                Spacer(Modifier.width(8.dp)); Text(if (state.refreshing) "جاري المزامنة" else if (!state.connected) "غير متصل - العمل محفوظ" else syncLabel(daily?.report?.status), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(8.dp)); Text(
+                    if (state.refreshing) "جاري المزامنة"
+                    else if (!state.connected) "غير متصل - العمل محفوظ وسيُرسل تلقائيًا"
+                    else syncLabel(daily?.report?.status, daily?.report?.lastError),
+                    color = if (daily?.report?.status == SyncStatus.SYNC_ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             state.message?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
             Spacer(Modifier.height(22.dp))
@@ -95,10 +100,11 @@ import java.util.Locale
     }
 }
 
-private fun syncLabel(status: SyncStatus?) = when (status) {
+private fun syncLabel(status: SyncStatus?, lastError: String?) = when (status) {
     SyncStatus.SYNCED -> "تمت المزامنة"
-    SyncStatus.PENDING_SYNC, SyncStatus.LOCAL_DRAFT -> "محفوظ على الهاتف"
+    SyncStatus.PENDING_SYNC -> "في انتظار الإرسال"
+    SyncStatus.LOCAL_DRAFT -> "محفوظ على الهاتف"
     SyncStatus.SYNCING -> "جاري المزامنة"
-    SyncStatus.SYNC_ERROR -> "سيتم الإرسال عند توفر الإنترنت"
+    SyncStatus.SYNC_ERROR -> lastError ?: "تعذر إرسال التقرير إلى الخادم"
     null -> "جاهز للعمل دون إنترنت"
 }
