@@ -22,21 +22,50 @@ import kotlinx.serialization.Serializable
 @Serializable data class ChecklistItemDto(val id: Int, @SerialName("section_id") val sectionId: Int = 0, val text: String, @SerialName("sequence_order") val sequence: Int = 0)
 @Serializable data class ChecklistSectionDto(val id: Int, @SerialName("template_id") val templateId: Int = 0, @SerialName("name") val title: String = "", @SerialName("sequence_order") val sequence: Int = 0, val items: List<ChecklistItemDto> = emptyList())
 @Serializable data class ChecklistTemplateDto(val id: Int, val name: String = "", val code: String = "", val sections: List<ChecklistSectionDto> = emptyList())
-@Serializable data class CurrentMaintenanceDto(
-    @SerialName("asset_id") val assetId: Int,
-    @SerialName("report_date") val reportDate: String,
-    val position: Int = 1,
-    val total: Int = 1
+
+// --- DTOs matching actual server responses ---
+
+// Server report answer as returned from ReportSerializer
+@Serializable data class ServerAnswerDto(
+    @SerialName("checklist_item_id") val checklistItemId: Int,
+    val text: String = "",
+    val checked: Boolean = false,
+    val note: String = ""
 )
+
+// Server report as returned from ReportSerializer
+@Serializable data class ServerReportDto(
+    val id: Int,
+    @SerialName("client_report_id") val clientReportId: String,
+    @SerialName("factory_id") val factoryId: Int? = null,
+    val asset: AssetDto? = null,
+    @SerialName("supervisor_id") val supervisorId: Int? = null,
+    @SerialName("report_date") val reportDate: String = "",
+    @SerialName("started_at_device") val startedAtDevice: String = "",
+    @SerialName("completed_at_device") val completedAtDevice: String = "",
+    @SerialName("last_modified_at_device") val lastModifiedAtDevice: String = "",
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("updated_at") val updatedAt: String = "",
+    @SerialName("completed_at") val completedAt: String = "",
+    @SerialName("is_locked") val isLocked: Boolean = false,
+    val answers: List<ServerAnswerDto> = emptyList()
+)
+
+// Bootstrap response matches BootstrapView.get() output
 @Serializable data class BootstrapDto(
     val user: UserDto,
     val factory: FactoryDto = user.factory,
     @SerialName("active_assets") val assets: List<AssetDto> = emptyList(),
     @SerialName("checklist_templates") val checklistTemplates: List<ChecklistTemplateDto> = emptyList(),
-    @SerialName("current_maintenance") val currentMaintenance: CurrentMaintenanceDto? = null,
     val asset: AssetDto? = null,
-    @SerialName("server_date") val serverDate: String? = null
+    @SerialName("checklist_template") val checklistTemplate: ChecklistTemplateDto? = null,
+    @SerialName("server_date") val serverDate: String? = null,
+    @SerialName("is_reported") val isReported: Boolean = false,
+    val report: ServerReportDto? = null,
+    @SerialName("order_version") val orderVersion: Int = 1
 )
+
+// Input DTOs (sent TO server)
 @Serializable data class AnswerInput(
     @SerialName("checklist_item_id") val checklistItemId: Int,
     val checked: Boolean,
@@ -52,11 +81,35 @@ import kotlinx.serialization.Serializable
     val answers: List<AnswerInput>
 )
 @Serializable data class BatchSyncRequest(val reports: List<ReportInput>)
+
+// Response from POST/PUT /api/v1/mobile/reports/ and /reports/<id>/
+@Serializable data class ReportResponseDto(
+    val status: String = "",
+    val reason: String = "",
+    val report: ServerReportDto? = null
+)
+
+// Individual sync result in batch response
 @Serializable data class ReportResultDto(
     @SerialName("client_report_id") val clientReportId: String,
     @SerialName("report_id") val id: Int? = null,
     val status: String = "accepted",
     @SerialName("reason") val detail: String? = null
 )
-@Serializable data class BatchSyncResponse(@SerialName("results") val reports: List<ReportResultDto> = emptyList())
-@Serializable data class ReportResponseDto(val id: Int, @SerialName("client_report_id") val clientReportId: String)
+
+// Response from POST /api/v1/mobile/sync/reports/
+@Serializable data class BatchSyncResponse(
+    @SerialName("results") val reports: List<ReportResultDto> = emptyList(),
+    @SerialName("current_maintenance") val currentMaintenance: BootstrapCurrentDto? = null,
+    @SerialName("server_date") val serverDate: String? = null
+)
+
+// The current_maintenance object returned inside batch sync response
+@Serializable data class BootstrapCurrentDto(
+    @SerialName("server_date") val serverDate: String? = null,
+    val asset: AssetDto? = null,
+    @SerialName("checklist_template") val checklistTemplate: ChecklistTemplateDto? = null,
+    @SerialName("is_reported") val isReported: Boolean = false,
+    val report: ServerReportDto? = null,
+    @SerialName("order_version") val orderVersion: Int = 1
+)

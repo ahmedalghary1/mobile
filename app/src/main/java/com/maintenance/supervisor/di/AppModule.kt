@@ -6,6 +6,7 @@ import androidx.work.WorkManager
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.maintenance.supervisor.BuildConfig
 import com.maintenance.supervisor.data.local.AppDatabase
+import com.maintenance.supervisor.data.local.MIGRATION_1_2
 import com.maintenance.supervisor.data.remote.*
 import com.maintenance.supervisor.data.repository.AuthRepositoryImpl
 import com.maintenance.supervisor.data.repository.MaintenanceRepositoryImpl
@@ -33,7 +34,9 @@ import javax.inject.Singleton
 object AppModule {
     @Provides @Singleton fun workManager(@ApplicationContext context: Context): WorkManager = WorkManager.getInstance(context)
     @Provides @Singleton fun database(@ApplicationContext context: Context): AppDatabase =
-        Room.databaseBuilder(context, AppDatabase::class.java, "maintenance.db").build()
+        Room.databaseBuilder(context, AppDatabase::class.java, "maintenance.db")
+            .addMigrations(MIGRATION_1_2)
+            .build()
     @Provides fun clock(): Clock = Clock.systemUTC()
     @Provides @Singleton fun json(): Json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true }
     @Provides @Singleton @RefreshClient fun refreshRetrofit(json: Json): Retrofit = Retrofit.Builder()

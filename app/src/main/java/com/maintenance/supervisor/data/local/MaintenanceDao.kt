@@ -28,6 +28,7 @@ interface MaintenanceDao {
     @Transaction @Query("SELECT * FROM reports WHERE ownerUserId = (SELECT id FROM users LIMIT 1) ORDER BY reportDate") fun observeReports(): Flow<List<ReportWithAnswers>>
     @Transaction @Query("SELECT * FROM reports WHERE clientReportId = :id") suspend fun report(id: String): ReportWithAnswers?
     @Transaction @Query("SELECT * FROM reports WHERE reportDate = :date AND ownerUserId = (SELECT id FROM users LIMIT 1) LIMIT 1") suspend fun reportForDate(date: String): ReportWithAnswers?
+    @Transaction @Query("SELECT * FROM reports WHERE reportDate = :date AND ownerUserId = (SELECT id FROM users LIMIT 1) AND (completedAtDevice IS NULL OR syncStatus IN ('SYNCED','PENDING_SYNC','LOCAL_DRAFT')) LIMIT 1") suspend fun todayReport(date: String): ReportWithAnswers?
     @Query("SELECT * FROM reports WHERE syncStatus = 'LOCAL_DRAFT' AND ownerUserId = (SELECT id FROM users LIMIT 1) LIMIT 1") suspend fun openReport(): MaintenanceReportEntity?
     @Transaction @Query("SELECT * FROM checklist_sections WHERE templateId = :templateId ORDER BY sequence") suspend fun checklist(templateId: Int): List<SectionWithItems>
     @Transaction @Query("SELECT * FROM reports WHERE ownerUserId = (SELECT id FROM users LIMIT 1) AND syncStatus IN ('PENDING_SYNC','SYNCING','SYNC_ERROR') AND completedAtDevice IS NOT NULL ORDER BY reportDate ASC, completedAtDevice ASC") suspend fun pendingReports(): List<ReportWithAnswers>
@@ -40,4 +41,5 @@ interface MaintenanceDao {
     @Query("DELETE FROM checklist_templates") suspend fun clearTemplates()
     @Query("DELETE FROM checklist_sections") suspend fun clearSections()
     @Query("DELETE FROM checklist_items") suspend fun clearItems()
+    @Query("DELETE FROM reports WHERE syncStatus = 'SYNCED'") suspend fun clearSyncedReports()
 }

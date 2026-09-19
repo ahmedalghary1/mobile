@@ -1,4 +1,4 @@
-﻿package com.maintenance.supervisor.ui.screens
+package com.maintenance.supervisor.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -44,17 +44,48 @@ import java.util.Locale
                     Spacer(Modifier.height(20.dp)); Button(vm::refresh, Modifier.fillMaxWidth().height(56.dp)) { Text("إعادة المحاولة") }
                 } }
             } else {
+                val isLocked = daily.report?.isLocked == true
                 Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(3.dp)) {
                     Column(Modifier.padding(24.dp)) {
-                        Text(if (daily.report?.completedAt != null) "تم تسجيل صيانة اليوم" else "صيانة اليوم", color = MaterialTheme.colorScheme.secondary, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            when {
+                                isLocked -> "تقرير مقفل - للعرض فقط"
+                                daily.report?.completedAt != null -> "تم تسجيل صيانة اليوم"
+                                else -> "صيانة اليوم"
+                            },
+                            color = if (isLocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary,
+                            fontSize = 20.sp, fontWeight = FontWeight.Bold
+                        )
                         Spacer(Modifier.height(18.dp)); Text(daily.asset.typeName.ifBlank { daily.asset.name }, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 18.sp)
                         Text(daily.asset.code, color = MaterialTheme.colorScheme.primary, fontSize = 40.sp, fontWeight = FontWeight.Bold)
                         Text(daily.reportDate.format(DateTimeFormatter.ofPattern("EEEE، d MMMM yyyy", Locale("ar", "EG"))), fontSize = 17.sp)
                         Text("الترتيب ${daily.position} من ${daily.total}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                        if (isLocked) {
+                            Spacer(Modifier.height(16.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.Lock, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.width(6.dp))
+                                Text("انتهى وقت التعديل على هذا التقرير", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 15.sp)
+                            }
+                        }
+
                         Spacer(Modifier.height(26.dp))
                         Button(onClick = { vm.start(onInspect) }, Modifier.fillMaxWidth().height(64.dp)) {
-                            Icon(if (daily.report == null) Icons.Outlined.PlayArrow else Icons.Outlined.Edit, null); Spacer(Modifier.width(8.dp))
-                            Text(when { daily.report?.completedAt != null -> "تعديل تقرير اليوم"; daily.report != null -> "استكمال الفحص"; else -> "بدء الفحص" }, fontSize = 20.sp)
+                            Icon(
+                                when {
+                                    isLocked -> Icons.Outlined.Visibility
+                                    daily.report == null -> Icons.Outlined.PlayArrow
+                                    else -> Icons.Outlined.Edit
+                                }, null
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(when {
+                                isLocked -> "عرض التقرير"
+                                daily.report?.completedAt != null -> "تعديل تقرير اليوم"
+                                daily.report != null -> "استكمال الفحص"
+                                else -> "بدء الفحص"
+                            }, fontSize = 20.sp)
                         }
                     }
                 }
@@ -71,4 +102,3 @@ private fun syncLabel(status: SyncStatus?) = when (status) {
     SyncStatus.SYNC_ERROR -> "سيتم الإرسال عند توفر الإنترنت"
     null -> "جاهز للعمل دون إنترنت"
 }
-

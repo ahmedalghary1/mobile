@@ -23,7 +23,8 @@ data class MaintenanceReportEntity(
     val completedAtDevice: String?,
     val lastModifiedAtDevice: String,
     val syncStatus: String,
-    val lastError: String? = null
+    val lastError: String? = null,
+    val isLocked: Boolean = false
 )
 @Entity(
     tableName = "answers",

@@ -40,9 +40,53 @@ data class HomeUiState(val snapshot: HomeSnapshot = HomeSnapshot(null, null, nul
 
 data class InspectionUiState(val home: HomeSnapshot? = null, val saving: Boolean = false, val error: String? = null)
 @HiltViewModel class InspectionViewModel @Inject constructor(private val repository: MaintenanceRepository, private val scheduler: SyncScheduler) : ViewModel() {
-    val state = repository.observeHome().map { InspectionUiState(it) }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InspectionUiState())
-    fun update(itemId: Int, checked: Boolean, note: String) { val id = state.value.home?.daily?.report?.clientReportId ?: return; viewModelScope.launch { repository.saveAnswer(id, MaintenanceAnswer(itemId, checked, note)) } }
-    fun complete(onDone: () -> Unit) { val id = state.value.home?.daily?.report?.clientReportId ?: return; viewModelScope.launch {
-        if (repository.completeReport(id) is AppResult.Success) { scheduler.enqueue(); onDone() }
-    } }
+
+    /**
+     * Local answer overrides — updated IMMEDIATELY on user interaction.
+     * This ensures that when LazyColumn recycles items on scroll, the
+     * latest checked/note values survive even if the async DB write
+     * hasn't completed yet.
+     */
+    private val _answerOverrides = MutableStateFlow<Map<Int, MaintenanceAnswer>>(emptyMap())
+
+    val state: StateFlow<InspectionUiState> = combine(
+        repository.observeHome(),
+        _answerOverrides
+    ) { home, overrides ->
+        if (home.daily?.report == null) {
+            return@combine InspectionUiState(home)
+        }
+        // Merge local overrides into the report answers from DB, keeping latest
+        val report = home.daily.report
+        val mergedAnswers = (report.answers + overrides.values)
+            .associateBy { it.checklistItemId }
+            .values
+            .toList()
+        val mergedReport = report.copy(answers = mergedAnswers)
+        val mergedDaily = home.daily.copy(report = mergedReport)
+        val mergedHome = home.copy(daily = mergedDaily)
+        InspectionUiState(mergedHome)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InspectionUiState())
+
+    fun update(itemId: Int, checked: Boolean, note: String) {
+        val answer = MaintenanceAnswer(itemId, checked, note)
+        // 1) Immediately update local state — this is SYNCHRONOUS
+        //    so the merged state is available on the very next frame,
+        //    even before the DB write completes.
+        _answerOverrides.update { current -> current + (itemId to answer) }
+
+        // 2) Persist to DB asynchronously
+        val id = state.value.home?.daily?.report?.clientReportId ?: return
+        viewModelScope.launch { repository.saveAnswer(id, answer) }
+    }
+
+    fun complete(onDone: () -> Unit) {
+        val id = state.value.home?.daily?.report?.clientReportId ?: return
+        viewModelScope.launch {
+            if (repository.completeReport(id) is AppResult.Success) {
+                _answerOverrides.value = emptyMap() // clear overrides after successful save
+                scheduler.enqueue(); onDone()
+            }
+        }
+    }
 }
