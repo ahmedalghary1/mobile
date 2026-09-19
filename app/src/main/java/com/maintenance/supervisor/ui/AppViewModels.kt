@@ -35,6 +35,13 @@ data class HomeUiState(val snapshot: HomeSnapshot = HomeSnapshot(null, null, nul
     init { scheduler.enqueue() }
     fun refresh() = viewModelScope.launch { transient.value = true to null; val r = repository.sync(); transient.value = false to (r as? AppResult.Error)?.message }
     fun start(onReady: () -> Unit) = viewModelScope.launch { when (val r = repository.startOrLoadToday()) { is AppResult.Success -> onReady(); is AppResult.Error -> transient.value = false to r.message } }
+    fun selectAsset(assetId: Int) = viewModelScope.launch {
+        transient.value = true to null
+        when (val result = repository.selectCurrentAsset(assetId)) {
+            is AppResult.Success -> transient.value = false to null
+            is AppResult.Error -> transient.value = false to result.message
+        }
+    }
     fun logout(onDone: () -> Unit) = viewModelScope.launch { auth.logout(); onDone() }
 }
 

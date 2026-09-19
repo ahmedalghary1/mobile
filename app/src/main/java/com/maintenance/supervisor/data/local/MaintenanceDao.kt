@@ -45,4 +45,5 @@ interface MaintenanceDao {
     @Query("DELETE FROM checklist_templates") suspend fun clearTemplates()
     @Query("DELETE FROM checklist_sections") suspend fun clearSections()
     @Query("DELETE FROM checklist_items") suspend fun clearItems()
+    @Query("DELETE FROM current_maintenance") suspend fun clearCurrent()
 }

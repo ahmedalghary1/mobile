@@ -1,7 +1,9 @@
 package com.maintenance.supervisor.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.*
@@ -22,6 +24,30 @@ import java.util.Locale
     val state by vm.state.collectAsState()
     val daily = state.snapshot.daily
     var menu by remember { mutableStateOf(false) }
+    var showAssetPicker by remember { mutableStateOf(false) }
+
+    if (showAssetPicker) {
+        AlertDialog(
+            onDismissRequest = { showAssetPicker = false },
+            title = { Text("اختيار ماكينة الصيانة") },
+            text = {
+                LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    items(state.snapshot.availableAssets, key = { it.id }) { asset ->
+                        ListItem(
+                            headlineContent = { Text(asset.code, fontWeight = FontWeight.Bold) },
+                            supportingContent = { Text(asset.typeName.ifBlank { asset.name }) },
+                            leadingContent = { RadioButton(selected = asset.id == daily?.asset?.id, onClick = null) },
+                            modifier = Modifier.clickable {
+                                showAssetPicker = false
+                                vm.selectAsset(asset.id)
+                            }
+                        )
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showAssetPicker = false }) { Text("إلغاء") } }
+        )
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -62,8 +88,8 @@ import java.util.Locale
                 }
             }
             item {
-                if (daily == null) EmptyMaintenanceCard(state.snapshot.factory == null, vm::refresh)
-                else DailyMaintenanceCard(daily) { vm.start(onInspect) }
+                if (daily == null) EmptyMaintenanceCard(state.snapshot.factory == null, state.snapshot.isMaintenanceDay, vm::refresh)
+                else DailyMaintenanceCard(daily, state.snapshot.selectionMode, state.snapshot.availableAssets.size > 1, { vm.start(onInspect) }, { showAssetPicker = true })
             }
             state.snapshot.lastSync?.let { value ->
                 item {
@@ -96,7 +122,7 @@ import java.util.Locale
     }
 }
 
-@Composable private fun DailyMaintenanceCard(daily: DailyMaintenance, onOpen: () -> Unit) {
+@Composable private fun DailyMaintenanceCard(daily: DailyMaintenance, selectionMode: String, canChange: Boolean, onOpen: () -> Unit, onChange: () -> Unit) {
     val report = daily.report
     val locked = report?.isLocked == true
     val completed = report?.completedAt != null
@@ -117,6 +143,7 @@ import java.util.Locale
             Spacer(Modifier.height(22.dp))
             Text(daily.asset.typeName.ifBlank { daily.asset.name }, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(daily.asset.code, style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
+            Text(if (selectionMode == "manual") "تم اختيارها يدويًا" else "محددة تلقائيًا حسب الدور", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(18.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("تقدم دورة المصنع", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -128,16 +155,24 @@ import java.util.Locale
                 Icon(when { locked -> Icons.Outlined.Visibility; report == null -> Icons.Outlined.PlayArrow; else -> Icons.Outlined.Edit }, null)
                 Spacer(Modifier.width(8.dp)); Text(when { locked -> "عرض التقرير"; completed -> "مراجعة تقرير اليوم"; report != null -> "استكمال الفحص"; else -> "بدء الفحص الآن" })
             }
+            if (canChange && report == null) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(onClick = onChange, Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.SwapHoriz, null); Spacer(Modifier.width(8.dp)); Text("تغيير الماكينة")
+                }
+                Text("يمكن التغيير قبل بدء الفحص فقط، ويتطلب اتصالًا بالإنترنت.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
 
-@Composable private fun EmptyMaintenanceCard(needsInternet: Boolean, onRefresh: () -> Unit) {
+@Composable private fun EmptyMaintenanceCard(needsInternet: Boolean, isMaintenanceDay: Boolean, onRefresh: () -> Unit) {
     Card(Modifier.fillMaxWidth()) { Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.large) { Icon(if (needsInternet) Icons.Outlined.CloudOff else Icons.Outlined.EventAvailable, null, Modifier.padding(18.dp).size(34.dp), tint = MaterialTheme.colorScheme.secondary) }
-        Spacer(Modifier.height(16.dp)); Text(if (needsInternet) "نحتاج اتصالًا أول مرة" else "لا توجد مهمة صيانة حاليًا", style = MaterialTheme.typography.titleLarge)
-        Text(if (needsInternet) "اتصل بالإنترنت لتحميل بيانات المصنع وقائمة الفحص." else "ستظهر هنا الماكينة التالية فور تحديدها.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(20.dp)); OutlinedButton(onRefresh) { Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(7.dp)); Text("إعادة المحاولة") }
+        val friday = !isMaintenanceDay
+        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.large) { Icon(if (needsInternet) Icons.Outlined.CloudOff else if (friday) Icons.Outlined.Weekend else Icons.Outlined.EventAvailable, null, Modifier.padding(18.dp).size(34.dp), tint = MaterialTheme.colorScheme.secondary) }
+        Spacer(Modifier.height(16.dp)); Text(when { needsInternet -> "نحتاج اتصالًا أول مرة"; friday -> "الجمعة عطلة الصيانة"; else -> "لا توجد مهمة صيانة حاليًا" }, style = MaterialTheme.typography.titleLarge)
+        Text(when { needsInternet -> "اتصل بالإنترنت لتحميل بيانات المصنع وقائمة الفحص."; friday -> "ستبقى ماكينة الدور نفسها وتظهر تلقائيًا في يوم العمل التالي."; else -> "ستظهر هنا الماكينة التالية فور تحديدها." }, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (!friday) { Spacer(Modifier.height(20.dp)); OutlinedButton(onRefresh) { Icon(Icons.Outlined.Refresh, null); Spacer(Modifier.width(7.dp)); Text("إعادة المحاولة") } }
     } }
 }
 

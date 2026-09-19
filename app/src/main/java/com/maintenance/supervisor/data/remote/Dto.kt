@@ -62,8 +62,14 @@ import kotlinx.serialization.Serializable
     @SerialName("server_date") val serverDate: String? = null,
     @SerialName("is_reported") val isReported: Boolean = false,
     val report: ServerReportDto? = null,
-    @SerialName("order_version") val orderVersion: Int = 1
+    @SerialName("order_version") val orderVersion: Int = 1,
+    @SerialName("is_maintenance_day") val isMaintenanceDay: Boolean = true,
+    @SerialName("selection_mode") val selectionMode: String = "automatic",
+    @SerialName("cycle_position") val cyclePosition: Int = 0,
+    @SerialName("cycle_total") val cycleTotal: Int = 0
 )
+
+@Serializable data class CurrentAssetSelectionRequest(@SerialName("asset_id") val assetId: Int)
 
 // Input DTOs (sent TO server)
 @Serializable data class AnswerInput(
@@ -111,5 +117,9 @@ import kotlinx.serialization.Serializable
     @SerialName("checklist_template") val checklistTemplate: ChecklistTemplateDto? = null,
     @SerialName("is_reported") val isReported: Boolean = false,
     val report: ServerReportDto? = null,
-    @SerialName("order_version") val orderVersion: Int = 1
+    @SerialName("order_version") val orderVersion: Int = 1,
+    @SerialName("is_maintenance_day") val isMaintenanceDay: Boolean = true,
+    @SerialName("selection_mode") val selectionMode: String = "automatic",
+    @SerialName("cycle_position") val cyclePosition: Int = 0,
+    @SerialName("cycle_total") val cycleTotal: Int = 0
 )
